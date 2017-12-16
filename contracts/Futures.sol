@@ -12,6 +12,7 @@ contract Futures is BasicToken, Ownable {
     uint public tick_size;
     uint public tick_value;
     uint public size;
+    uint8 public margin;
     address public addressTicker;//0xfD12b06273c8F96Df27471Bf49F173c5f0B99ea6
     uint public created;
     uint public expire;
@@ -19,12 +20,22 @@ contract Futures is BasicToken, Ownable {
     string public symbol;
     uint8 public decimals;
     
-    function Futures(string _name, string _symbol, address _addressTicker, uint _expire) public {
+    function Futures(string _name, string _symbol, address _addressTicker, uint _expire, 
+                    uint _value, uint _size, uint _tick_size, uint _tick_value, uint8 _margin) 
+    public {
         name = _name;
         symbol = _symbol;
         addressTicker = _addressTicker;
         expire = _expire;
         created = now;
+        last = _value;
+        settlement = _value;
+        low = _value - (_value / 100 * _margin);
+        high = _value + (_value / 100 * _margin);
+        size = _size;
+        tick_size = _tick_size;
+        tick_value = _tick_value;
+        margin = _margin;
     }
 
     function () payable public {
@@ -55,6 +66,11 @@ contract Futures is BasicToken, Ownable {
         addressTicker = _address;
         return true;
     }
+    
+    function setMargin(uint8 _margin) public onlyOwner returns (bool){
+        margin = _margin;
+        return true;
+    }    
 
     function transfer(address _to, uint256 _value) public onlyOwner returns (bool) {
         return super.transfer(_to, _value);
