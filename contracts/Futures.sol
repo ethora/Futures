@@ -4,11 +4,7 @@ import "zeppelin-solidity/contracts/token/BasicToken.sol";
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
 
 contract Futures is BasicToken, Ownable {
-    
-    uint public last;
-    uint public high;
-    uint public low;
-    uint public settlement;
+
     uint public tick_size;
     uint public tick_value;
     uint public size;
@@ -20,6 +16,17 @@ contract Futures is BasicToken, Ownable {
     string public symbol;
     uint8 public decimals;
     
+    Checkpoint[] internal checkpoints;
+    
+    struct  Checkpoint {
+        uint128 Block;
+        uint datetime;
+        uint last;
+        uint high;
+        uint low;
+        uint settlement;
+    }    
+    
     function Futures(string _name, string _symbol, address _addressTicker, uint _expire, 
                     uint _value, uint _size, uint _tick_size, uint _tick_value, uint8 _margin) 
     public {
@@ -28,10 +35,15 @@ contract Futures is BasicToken, Ownable {
         addressTicker = _addressTicker;
         expire = _expire;
         created = now;
-        last = _value;
-        settlement = _value;
-        low = _value - (_value / 100 * _margin);
-        high = _value + (_value / 100 * _margin);
+        
+        checkpoints[0].Block =  uint128(block.number);
+        checkpoints[0].datetime = created;
+        checkpoints[0].last = _value;
+        checkpoints[0].settlement = _value;
+        checkpoints[0].low = _value - (_value / 100 * _margin / 2);
+        checkpoints[0].high = _value + (_value / 100 * _margin / 2);        
+        checkpoints.length++;
+
         size = _size;
         tick_size = _tick_size;
         tick_value = _tick_value;
@@ -42,7 +54,7 @@ contract Futures is BasicToken, Ownable {
         revert();
     }
     
-    function setLast(uint _value) public onlyOwner returns (bool){
+    /*function setLast(uint _value) public onlyOwner returns (bool){
         last = _value;
         return true;
     }
@@ -60,7 +72,7 @@ contract Futures is BasicToken, Ownable {
     function setSettlement(uint _value) public onlyOwner returns (bool){
         settlement = _value;
         return true;
-    }
+    }*/
 
     function setTicker(address _address) public onlyOwner returns (bool){
         addressTicker = _address;
