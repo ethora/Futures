@@ -5,53 +5,77 @@ import "zeppelin-solidity/contracts/ownership/Ownable.sol";
 
 contract Futures is BasicToken, Ownable {
 
-    uint public tick_size;
-    uint public tick_value;
-    uint public size;
-    uint8 public margin;
+    uint public tick_size; //0.0001
+    uint public size; //5 ETH
+    uint8 public margin; //40%
     address public addressTicker;//0xfD12b06273c8F96Df27471Bf49F173c5f0B99ea6
     uint public created;
     uint public expire;
     string public name;
     string public symbol;
-    uint8 public decimals;
+    uint8 public decimals;//12
     
     Checkpoint[] internal checkpoints;
     
     struct  Checkpoint {
-        uint128 Block;
+        uint Block;
         uint datetime;
         uint last;
         uint high;
         uint low;
         uint settlement;
+        uint tick_value;
     }    
     
     function Futures(string _name, string _symbol, address _addressTicker, uint _expire, 
-                    uint _value, uint _size, uint _tick_size, uint _tick_value, uint8 _margin) 
+                    uint _value, uint _size, uint _tick_size, uint8 _margin, uint8 _decimals) 
     public {
+        require(_margin <= 100);
         name = _name;
         symbol = _symbol;
         addressTicker = _addressTicker;
         expire = _expire;
         created = now;
         
-        checkpoints[0].Block =  uint128(block.number);
-        checkpoints[0].datetime = created;
-        checkpoints[0].last = _value;
-        checkpoints[0].settlement = _value;
-        checkpoints[0].low = _value - (_value / 100 * _margin / 2);
-        checkpoints[0].high = _value + (_value / 100 * _margin / 2);        
-        checkpoints.length++;
+        checkpoints.push(Checkpoint({Block: block.number, 
+                                    datetime: created, 
+                                    last: _value.mul(_size), 
+                                    tick_value: _tick_size.div(_value).mul(_size), 
+                                    settlement: _value.mul(_size), 
+                                    low: 0, // _value.sub(_value.div(200).mul(_margin)).mul(_size), 
+                                    high: 0 //_value.add(_value.div(200).mul(_margin)).mul(_size)
+                                    }));
 
         size = _size;
         tick_size = _tick_size;
-        tick_value = _tick_value;
         margin = _margin;
+        decimals = _decimals;
     }
 
     function () payable public {
         revert();
+    }
+    
+    function getSymbol() public view returns(bytes32 result) {
+        string memory _symbol = symbol;
+        bytes memory tempEmptyStringTest = bytes(_symbol);
+        if (tempEmptyStringTest.length == 0) {
+            return 0x0;
+        }
+    
+        assembly {
+            result := mload(add(_symbol, 32))
+        }
+    }
+    
+    function getCheckpoint() public view returns(uint, uint, uint, uint, uint)
+    {
+        require(checkpoints.length > 0);
+        return (checkpoints[checkpoints.length-1].last, 
+                checkpoints[checkpoints.length-1].high, 
+                checkpoints[checkpoints.length-1].low, 
+                checkpoints[checkpoints.length-1].settlement, 
+                checkpoints[checkpoints.length-1].tick_value);
     }
     
     /*function setLast(uint _value) public onlyOwner returns (bool){
