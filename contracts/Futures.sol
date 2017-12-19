@@ -5,8 +5,9 @@ import "zeppelin-solidity/contracts/ownership/Ownable.sol";
 
 contract Futures is BasicToken, Ownable {
 
-    uint public tick_size; //0.0001
-    uint public size; //5 ETH
+    uint public tick_size; //0.01 ETH
+    uint public tick_value; //0.01 ETH
+    uint public size; //0.5 BTC
     uint8 public margin; //40%
     address public addressTicker;//0xfD12b06273c8F96Df27471Bf49F173c5f0B99ea6
     uint public created;
@@ -14,6 +15,7 @@ contract Futures is BasicToken, Ownable {
     string public name;
     string public symbol;
     uint8 public decimals;//12
+    bool public trade;
     
     Checkpoint[] internal checkpoints;
     
@@ -24,32 +26,37 @@ contract Futures is BasicToken, Ownable {
         uint high;
         uint low;
         uint settlement;
-        uint tick_value;
     }    
     
     function Futures(string _name, string _symbol, address _addressTicker, uint _expire, 
-                    uint _value, uint _size, uint _tick_size, uint8 _margin, uint8 _decimals) 
+                    uint _value, uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals) 
     public {
         require(_margin <= 100);
+        require(_value.mul(_size).div(uint(10)**_decimals) >= _tick_size);
         name = _name;
         symbol = _symbol;
         addressTicker = _addressTicker;
         expire = _expire;
         created = now;
         
+        uint _v = ((_value.mul(_size).div(uint(10)**_decimals)) % _tick_size) < _tick_size.div(2) ? 
+                    (_value.mul(_size).div(uint(10)**_decimals)) - ((_value.mul(_size).div(uint(10)**_decimals)) % _tick_size)  :
+                    (_value.mul(_size).div(uint(10)**_decimals)) - ((_value.mul(_size).div(uint(10)**_decimals)) % _tick_size) + _tick_size;
+        
         checkpoints.push(Checkpoint({Block: block.number, 
                                     datetime: created, 
-                                    last: _value.mul(_size), 
-                                    tick_value: _tick_size.div(_value).mul(_size), 
-                                    settlement: _value.mul(_size), 
-                                    low: 0, // _value.sub(_value.div(200).mul(_margin)).mul(_size), 
-                                    high: 0 //_value.add(_value.div(200).mul(_margin)).mul(_size)
+                                    last: _v,// _value.mul(_size).div(uint(10)**_decimals), 
+                                    settlement: _v, //_value.mul(_size).div(uint(10)**_decimals), 
+                                    low:  _v.mul(100 - (_margin / 2)).div(100), //_v.sub(_v.div(200).mul(_margin)).mul(_size).div(uint(10)**_decimals), 
+                                    high: _v.mul(100 + (_margin / 2)).div(100) //_v.add(_v.div(200).mul(_margin)).mul(_size).div(uint(10)**_decimals)
                                     }));
 
         size = _size;
         tick_size = _tick_size;
+        tick_value = _tick_value;
         margin = _margin;
         decimals = _decimals;
+        trade = false;
     }
 
     function () payable public {
@@ -68,36 +75,20 @@ contract Futures is BasicToken, Ownable {
         }
     }
     
-    function getCheckpoint() public view returns(uint, uint, uint, uint, uint)
+    function getCheckpoint() public view returns(uint, uint, uint, uint)
     {
         require(checkpoints.length > 0);
         return (checkpoints[checkpoints.length-1].last, 
                 checkpoints[checkpoints.length-1].high, 
                 checkpoints[checkpoints.length-1].low, 
-                checkpoints[checkpoints.length-1].settlement, 
-                checkpoints[checkpoints.length-1].tick_value);
+                checkpoints[checkpoints.length-1].settlement);
     }
     
-    /*function setLast(uint _value) public onlyOwner returns (bool){
-        last = _value;
-        return true;
+    function invertTrade() public onlyOwner returns (bool){
+        trade = !trade;
+        return trade;
     }
     
-    function setHigh(uint _value) public onlyOwner returns (bool){
-        high = _value;
-        return true;
-    }
-
-    function setLow(uint _value) public onlyOwner returns (bool){
-        low = _value;
-        return true;
-    }
-    
-    function setSettlement(uint _value) public onlyOwner returns (bool){
-        settlement = _value;
-        return true;
-    }*/
-
     function setTicker(address _address) public onlyOwner returns (bool){
         addressTicker = _address;
         return true;

@@ -13,19 +13,12 @@ contract FuturesExch is StandardToken, Ownable {
     string public symbol;
     uint8 public decimals;
     //DateTimeAPI internal datetime;
-    FuturesList[] internal futuresList;
     mapping(address => Order[]) internal orders;
     uint internal order_id;
     //DoublyLinkedList.data OrderBook;
 
     event NewFutures(address futures, string symbol);
     event LogOrder(address indexed futures, string symbol, Kind kind, Action action, uint id, uint size, uint price);
-    
-    struct FuturesList {
-        address futures;
-        uint expire;
-        bool trade;
-    }
     
     struct Order {
         uint id;
@@ -46,15 +39,14 @@ contract FuturesExch is StandardToken, Ownable {
         decimals = _decimals;
     }
     
-    function CreateFutures(string _name, string _symbol, address _addressTicker, uint _expire, uint _value,
-                        uint _size, uint _tick_size, uint8 _margin, uint8 _decimals) 
+    function CreateFutures(string _name, string _symbol, address _addressTicker, uint _expire, 
+                        uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals) 
     public onlyOwner returns (Futures) {
         require(_addressTicker != address(0));
-        EthOra _ethora = EthOra(_addressTicker);
         var (key, value) = EthOra(_addressTicker).getLast();
-        Futures _futures = new Futures(_name, _symbol, _addressTicker, _expire, _value, _size, _tick_size, _margin, _decimals);
         
-        futuresList.push(FuturesList({futures:_futures, expire: _expire, trade: true}));
+        Futures _futures = new Futures(_name, _symbol, _addressTicker, _expire, uint256(value), _size, _tick_size, _tick_value, _margin, _decimals);
+        
         NewFutures(_futures, bytes32ToString(_futures.getSymbol()));    
         return _futures;
     }
@@ -107,7 +99,7 @@ contract FuturesExch is StandardToken, Ownable {
         return true;
     }
 
-    function getCheckpoint(address _futures) public view returns(uint, uint, uint, uint, uint){
+    function getCheckpoint(address _futures) public view returns(uint, uint, uint, uint){
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
         return Futures(_futures).getCheckpoint();
@@ -152,28 +144,39 @@ contract FuturesExch is StandardToken, Ownable {
     function Buy(address _futures, uint _size) public returns (uint) {
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
+        require(Futures(_futures).trade());
         orders[_futures].push(Order({id: order_id, trader: msg.sender, kind: Kind.Buy, action: Action.New, size: _size, price: 0}));
         LogOrder(_futures, bytes32ToString(Futures(_futures).getSymbol()), Kind.Buy, Action.New, order_id, _size, 0);        
-        require(Deal(_futures, order_id));
+        //require(Deal(_futures, order_id));
         return order_id++;
     }
     
     function Sell(address _futures, uint _size) public returns (uint) {
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
+        require(Futures(_futures).trade());
         require(Futures(_futures).balanceOf(msg.sender) >= _size);
         orders[_futures].push(Order({id: order_id, trader: msg.sender, kind: Kind.Sell, action: Action.New, size: _size, price: 0}));
         LogOrder(_futures, bytes32ToString(Futures(_futures).getSymbol()), Kind.Sell, Action.New, order_id, _size, 0);        
-        require(Deal(_futures, order_id));
+        //require(Deal(_futures, order_id));
         return order_id++;
     }
     
-    function Deal(address _futures, uint _order_id) internal returns (bool){
-        uint i = 0;
-        for (i = orders[_futures].length; ((orders[_futures][i-1].id != _order_id) && (i >= 0)) ; i--){}
-        
+    function stopFutures(address _futures) public onlyOwner returns (bool){
+        require(_futures != address(0));
+        require(Futures(_futures).expire() >= now);
+        require(Futures(_futures).trade());
+        require(!Futures(_futures).invertTrade());
         return true;
     }
+    
+    function startFutures(address _futures) public onlyOwner returns (bool){
+        require(_futures != address(0));
+        require(Futures(_futures).expire() >= now);
+        require(!Futures(_futures).trade());
+        require(Futures(_futures).invertTrade());
+        return true;
+    }    
     
     function TikerInsert(address _addressTicker, int64 _key, int _value) public onlyOwner {
         require(_addressTicker != address(0));
