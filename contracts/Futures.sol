@@ -84,6 +84,12 @@ contract Futures is BasicToken, Ownable {
                 checkpoints[checkpoints.length-1].settlement);
     }
     
+    function getLast() public view returns(uint)
+    {
+        require(checkpoints.length > 0);
+        return checkpoints[checkpoints.length-1].last;
+    }
+    
     function invertTrade() public onlyOwner returns (bool){
         trade = !trade;
         return trade;

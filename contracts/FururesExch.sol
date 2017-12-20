@@ -6,6 +6,7 @@ import "./Futures.sol";
 //import "library/DateTimeAPI.sol";
 //import "library/linkedList.sol";
 import "../../smartoracle/contract/contracts/EthOra.sol";
+import "./FuturesExchLib.sol";
 
 contract FuturesExch is StandardToken, Ownable {
     
@@ -13,24 +14,16 @@ contract FuturesExch is StandardToken, Ownable {
     string public symbol;
     uint8 public decimals;
     //DateTimeAPI internal datetime;
-    mapping(address => Order[]) internal orders;
+    mapping(address => FuturesExchLib.Order[]) internal orders;
     uint internal order_id;
+    
+    address[] futuresList;
     //DoublyLinkedList.data OrderBook;
 
+    
+    event LogOrder(address indexed futures, uint8 kind, uint8 action, uint id, uint size, uint price);
     event NewFutures(address futures, string symbol);
-    event LogOrder(address indexed futures, string symbol, Kind kind, Action action, uint id, uint size, uint price);
-    
-    struct Order {
-        uint id;
-        address trader;
-        Kind kind;
-        Action action;
-        uint size;
-        uint price;
-    }
-    
-    enum Kind { Buy, Sell }
-    enum Action { New, Deleted, Done }
+    event StatusFutures(address futures, bool trade);
     
     function FuturesExch(string _name, string _symbol, uint8 _decimals) public {
         //datetime = DateTimeAPI("0xD5122765dE942CaA344c6Ae02DadC1Cab9C4D49F");
@@ -46,9 +39,19 @@ contract FuturesExch is StandardToken, Ownable {
         var (key, value) = EthOra(_addressTicker).getLast();
         
         Futures _futures = new Futures(_name, _symbol, _addressTicker, _expire, uint256(value), _size, _tick_size, _tick_value, _margin, _decimals);
-        
+        futuresList.push(_futures);
         NewFutures(_futures, bytes32ToString(_futures.getSymbol()));    
         return _futures;
+    }
+    
+    function Buy(address _futures, uint _size) public returns (uint) {
+        require(_size > 0);
+        uint _cost = _size.mul(Futures(_futures).getLast()).mul(uint(10)**decimals).div(uint(10)**Futures(_futures).decimals()).mul(Futures(_futures).margin()).div(100);
+        require(balanceOf(msg.sender) >= _cost);
+        order_id = FuturesExchLib.Buy(orders[_futures] ,_futures, _size, order_id);
+        transfer(this, _cost);
+        //LogOrder(msg.sender, 0,0,0,0,_cost);
+        return order_id;
     }
     
     function () payable public {
@@ -71,7 +74,7 @@ contract FuturesExch is StandardToken, Ownable {
         totalSupply = totalSupply.add(amount);
         balances[dest] = balanceOf(dest).add(amount);
         allowed[dest][this] = allowed[dest][this].add(amount);
-        Transfer(0, dest, amount);
+        Transfer(this, dest, amount);
         Approval(dest, this, allowed[dest][this]);        
         return true;
     }
@@ -84,7 +87,7 @@ contract FuturesExch is StandardToken, Ownable {
         require(allowed[from][this] >= amount);
         totalSupply = totalSupply.sub(amount);
         balances[from] = balanceOf(from).sub(amount);
-        Transfer(from, 0, amount);
+        Transfer(from, this, amount);
         Approval(from, this, allowed[from][this]);  
         return true;
     }
@@ -96,7 +99,18 @@ contract FuturesExch is StandardToken, Ownable {
         balances[msg.sender] = balanceOf(msg.sender).sub(amount);
         totalSupply = totalSupply.sub(amount);
         msg.sender.transfer(amount);
+        Transfer(msg.sender, 0, amount);
         return true;
+    }
+    
+    function getFutureListLength() public view returns (uint)
+    {
+        return futuresList.length;
+    }
+    
+    function getFutureByIdx(uint idx) public view returns (address)
+    {
+        return futuresList[idx];
     }
 
     function getCheckpoint(address _futures) public view returns(uint, uint, uint, uint){
@@ -141,32 +155,12 @@ contract FuturesExch is StandardToken, Ownable {
         return Futures(_futures).decimals();
     }     
     
-    function Buy(address _futures, uint _size) public returns (uint) {
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        require(Futures(_futures).trade());
-        orders[_futures].push(Order({id: order_id, trader: msg.sender, kind: Kind.Buy, action: Action.New, size: _size, price: 0}));
-        LogOrder(_futures, bytes32ToString(Futures(_futures).getSymbol()), Kind.Buy, Action.New, order_id, _size, 0);        
-        //require(Deal(_futures, order_id));
-        return order_id++;
-    }
-    
-    function Sell(address _futures, uint _size) public returns (uint) {
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        require(Futures(_futures).trade());
-        require(Futures(_futures).balanceOf(msg.sender) >= _size);
-        orders[_futures].push(Order({id: order_id, trader: msg.sender, kind: Kind.Sell, action: Action.New, size: _size, price: 0}));
-        LogOrder(_futures, bytes32ToString(Futures(_futures).getSymbol()), Kind.Sell, Action.New, order_id, _size, 0);        
-        //require(Deal(_futures, order_id));
-        return order_id++;
-    }
-    
     function stopFutures(address _futures) public onlyOwner returns (bool){
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
         require(Futures(_futures).trade());
         require(!Futures(_futures).invertTrade());
+        StatusFutures(_futures, Futures(_futures).trade());
         return true;
     }
     
@@ -175,6 +169,7 @@ contract FuturesExch is StandardToken, Ownable {
         require(Futures(_futures).expire() >= now);
         require(!Futures(_futures).trade());
         require(Futures(_futures).invertTrade());
+        StatusFutures(_futures, Futures(_futures).trade());
         return true;
     }    
     
@@ -190,7 +185,7 @@ contract FuturesExch is StandardToken, Ownable {
         Futures(futures).transferOwnership(newOwner);
     }
     
-    function bytes32ToString (bytes32 data) internal pure returns (string) {
+    function bytes32ToString (bytes32 data) public pure returns (string) {
         bytes memory bytesString = new bytes(32);
         for (uint j=0; j<32; j++) {
             byte char = byte(bytes32(uint(data) * 2 ** (8 * j)));
@@ -200,5 +195,4 @@ contract FuturesExch is StandardToken, Ownable {
         }
         return string(bytesString);
     }
-    
 }
