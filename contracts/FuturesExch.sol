@@ -3,9 +3,8 @@ pragma solidity ^0.4.17;
 import "zeppelin-solidity/contracts/token/StandardToken.sol";
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
 import "./Futures.sol";
-//import "library/DateTimeAPI.sol";
-//import "library/linkedList.sol";
-import "../../smartoracle/contract/contracts/EthOra.sol";
+//import "../../smartoracle/contract/contracts/EthOra.sol";
+import "./EthOraAPI.sol";
 import "./FuturesExchLib.sol";
 
 contract FuturesExch is StandardToken, Ownable {
@@ -13,20 +12,16 @@ contract FuturesExch is StandardToken, Ownable {
     string public name;
     string public symbol;
     uint8 public decimals;
-    //DateTimeAPI internal datetime;
     mapping(address => FuturesExchLib.Order[]) internal orders;
     uint internal order_id;
     
     address[] futuresList;
-    //DoublyLinkedList.data OrderBook;
 
-    
     event LogOrder(address indexed futures, uint8 kind, uint8 action, uint id, uint size, uint price);
     event NewFutures(address futures, string symbol);
     event StatusFutures(address futures, bool trade);
     
     function FuturesExch(string _name, string _symbol, uint8 _decimals) public {
-        //datetime = DateTimeAPI("0xD5122765dE942CaA344c6Ae02DadC1Cab9C4D49F");
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
@@ -36,7 +31,7 @@ contract FuturesExch is StandardToken, Ownable {
                         uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals) 
     public onlyOwner returns (Futures) {
         require(_addressTicker != address(0));
-        var (key, value) = EthOra(_addressTicker).getLast();
+        var (key, value) = EthOraAPI(_addressTicker).getLast();
         
         Futures _futures = new Futures(_name, _symbol, _addressTicker, _expire, uint256(value), _size, _tick_size, _tick_value, _margin, _decimals);
         futuresList.push(_futures);
@@ -175,8 +170,7 @@ contract FuturesExch is StandardToken, Ownable {
     
     function TikerInsert(address _addressTicker, int64 _key, int _value) public onlyOwner {
         require(_addressTicker != address(0));
-        EthOra _ethora = EthOra(_addressTicker);
-        _ethora.insert(_key, _value);
+        EthOraAPI(_addressTicker).insert(_key, _value);
     }
     
     function transferOwnershipForFutures(address futures, address newOwner) public onlyOwner {
