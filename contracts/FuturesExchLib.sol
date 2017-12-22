@@ -2,9 +2,13 @@ pragma solidity ^0.4.17;
 
 import "./Futures.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
+import "zeppelin-solidity/contracts/math/Math.sol";
+import "library/linkedList.sol";
 
 library FuturesExchLib {
     using SafeMath for uint256;
+    using Math for uint256;
+    using DoublyLinkedList for DoublyLinkedList.data;
 
     struct Order {
         uint id;
@@ -25,30 +29,56 @@ library FuturesExchLib {
     uint8 constant DELETED = 1;
     uint8 constant DONE = 2;
     
-    event LogOrder(address indexed futures, uint8 kind, uint8 action, uint id, uint size, uint price);
+    event LogOrder(address indexed futures, uint indexed id, uint8 kind, uint8 action, uint size, uint price);
 
-    function Buy(Order[] storage orders, address _futures, uint _size, uint order_id) public returns (uint) {
+    function Buy(DoublyLinkedList.data storage _list, Order[] storage _orders, address _futures, uint _size, uint order_id) public returns (uint cost) {
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
         require(Futures(_futures).trade());
-        orders.push(Order({id: order_id, trader: msg.sender, kind: BUY, action: NEW, size: _size, price: 0, deleted: false}));
-        LogOrder(_futures, BUY, NEW, order_id, _size, 0);        
-        //require(Deal(_futures, order_id));
-        return ++order_id;
+        //orders.push(Order({id: order_id, trader: msg.sender, kind: BUY, action: NEW, size: _size, price: 0, deleted: false}));
+        LogOrder(_futures, order_id, BUY, NEW, _size, 0);        
+        uint80 it = _list.iterate_end();
+        uint part_size = 0;
+        while (_list.iterate_valid(it) && _size > 0) {
+            if ( _orders[uint(_list.iterate_get(it))].kind != BUY && !_orders[uint(_list.iterate_get(it))].deleted)
+            {
+                part_size = _size.min256(_orders[uint(_list.iterate_get(it))].size);
+                _size -= part_size;
+                _orders[uint(_list.iterate_get(it))].size -= part_size;
+                cost += part_size.mul(_orders[uint(_list.iterate_get(it))].price).div(uint(10)**Futures(_futures).decimals()).mul(Futures(_futures).margin()).div(100);
+                LogOrder(_futures, order_id, BUY, DONE, part_size, _orders[uint(_list.iterate_get(it))].price);
+                LogOrder(_futures, _orders[uint(_list.iterate_get(it))].id, SELL, DONE, part_size, _orders[uint(_list.iterate_get(it))].price);   
+                if (_orders[uint(_list.iterate_get(it))].size == 0 )
+                    _orders[uint(_list.iterate_get(it))].deleted = true;   
+            }
+            it = _list.iterate_prev(it);
+        }        
+        //Deal(_futures, orders, order_id, BUY);
+        if (_size > 0) LogOrder(_futures, order_id, BUY, DELETED, _size, 0);
+        return cost;
     }
     
-    function Sell(Order[] storage orders, address _futures, uint _size, uint order_id) public returns (uint) {
+    function Sell(address _futures, uint _size, uint order_id) public returns (uint) {
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
         require(Futures(_futures).trade());
         //require(Futures(_futures).balanceOf(msg.sender) >= _size);
-        orders.push(Order({id: order_id, trader: msg.sender, kind: SELL, action: NEW, size: _size, price: 0, deleted: false}));
-        LogOrder(_futures, SELL, NEW, order_id, _size, 0);        
+        //orders.push(Order({id: order_id, trader: msg.sender, kind: SELL, action: NEW, size: _size, price: 0, deleted: false}));
+        LogOrder(_futures, order_id, SELL, NEW, _size, 0);        
         //require(Deal(_futures, order_id));
         return ++order_id;
     }
     
-    function DeleteOrder(Order[] storage orders, address _futures, uint _order_id) public returns (bool){
+
+    /*function sort(Order[] storage orders) internal returns (bool){
+        if (orders.length < 2) return bool;
+        Order memory _order = orders[orders.length - 1];
+        for(uint i = orders.length - 2; i>=0; i--){
+            if(orders[i].kind == _order.kind && )
+        }
+    }*/
+    
+   /* function DeleteOrder(Order[][2] storage orders, address _futures, uint _order_id) public returns (bool){
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
         require(Futures(_futures).trade());    
@@ -65,6 +95,6 @@ library FuturesExchLib {
             orders[i-1].deleted = true;
             return true;
         }
-    }    
+    }    */
     
 }
