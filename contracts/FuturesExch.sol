@@ -1,7 +1,7 @@
 pragma solidity ^0.4.17;
 
 
-import "./Futures.sol";
+import "./FuturesAPI.sol";
 import "./FuturesExchToken.sol";
 import "./EthOraAPI.sol";
 import "./FuturesExchLib.sol";
@@ -30,25 +30,34 @@ contract FuturesExch is FuturesExchToken {
         decimals = _decimals;
     }
     
-    function CreateFutures(string _name, string _symbol, address _addressTicker, uint _expire, 
-                        uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals) 
-    public onlyOwner returns (Futures) {
+    function CreateFuturesAPI(string _name, string _symbol, address _addressTicker, uint _expire, 
+                        uint _size, uint _tick_size, uint _tick_value, uint _margin, uint8 _decimals) 
+    public onlyOwner returns (address) {
         require(_addressTicker != address(0));
-        var (key, value) = EthOraAPI(_addressTicker).getLast();
         
-        Futures _futures = new Futures(_name, _symbol, _addressTicker, _expire, uint256(value), _size, _tick_size, _tick_value, _margin, _decimals);
+        //Futures _futures = new FuturesAPI(_name, _symbol, _addressTicker, _expire, _size, _tick_size, _tick_value, _margin, _decimals);
+        address _futures = FuturesAPI.CreateFutures(_name, _symbol, _addressTicker, _expire, _size, _tick_size, _tick_value, _margin, _decimals); 
         futuresList.push(_futures);
-        NewFutures(_futures, bytes32ToString(_futures.getSymbol()));    
+        NewFutures(_futures, _symbol);    
         return _futures;
     }
     
     function Buy(address _futures, uint _size) public returns (uint) {
         require(_size > 0);
-        uint _cost = _size.mul(Futures(_futures).getLast()).mul(uint(10)**decimals).div(uint(10)**Futures(_futures).decimals()).mul(Futures(_futures).margin()).div(100);
-        require(balanceOf(msg.sender) >= _cost);
-        _cost = FuturesExchLib.Buy(AskList, orders[_futures], _futures, _size, order_id);
+        uint _cost = FuturesExchLib.Buy(AskList, orders[_futures], _futures, _size, order_id);
         traderOrders[msg.sender].push(order_id);
-        if(_cost > 0) transfer(this, _cost.mul(uint(10)**decimals));
+        if(_cost > 0) transfer(this, _cost);
+        order_id++;
+        return order_id;
+    }
+    
+    function BuyLimit(address _futures, uint _size, uint _price) public returns (uint) {
+        require(_size > 0 && _price > 0);
+        var (, value) = EthOraAPI(FuturesAPI.addressTicker(_futures)).getLast();
+        if (uint(value).mul(uint(10)**decimals)
+                        .div(EthOraAPI(FuturesAPI.addressTicker(_futures)).decimals() > 0 ? uint(10)**EthOraAPI(FuturesAPI.addressTicker(_futures)).decimals() : uint(10)**FuturesAPI.decimals(_futures)) < _price) 
+            return Buy(_futures, _size);
+        transfer(this, FuturesExchLib.BuyLimit(AskList, orders[_futures], _futures, _size, _price, order_id));
         order_id++;
         return order_id;
     }
@@ -64,63 +73,39 @@ contract FuturesExch is FuturesExchToken {
     }
 
     function getCheckpoint(address _futures) public view returns(uint, uint, uint, uint){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).getCheckpoint();
+        return FuturesAPI.getCheckpoint(_futures, decimals);
     }
     
     function getTick_size(address _futures) public view returns (uint){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).tick_size();
+        return FuturesAPI.getTick_size(_futures, decimals);
     }
     
     function getSize(address _futures) public view returns (uint){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).size();
+        return FuturesAPI.getSize(_futures, decimals);
     }  
     
-    function getMargin(address _futures) public view returns (uint8){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).margin();
+    function getMargin(address _futures) public view returns (uint){
+        return FuturesAPI.getMargin(_futures, decimals);
     }        
 
     function getExpire(address _futures) public view returns (uint){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).expire();
+        return FuturesAPI.getExpire(_futures);
     }    
     
     function getTicker(address _futures) public view returns (address){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).addressTicker();
+        return FuturesAPI.getTicker(_futures);
     }   
 
     function getDecimals(address _futures) public view returns (uint8){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        return Futures(_futures).decimals();
+        return FuturesAPI.getDecimals(_futures);
     }     
     
     function stopFutures(address _futures) public onlyOwner returns (bool){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        require(Futures(_futures).trade());
-        require(!Futures(_futures).invertTrade());
-        StatusFutures(_futures, Futures(_futures).trade());
-        return true;
+        return FuturesAPI.stopFutures(_futures);
     }
     
     function startFutures(address _futures) public onlyOwner returns (bool){
-        require(_futures != address(0));
-        require(Futures(_futures).expire() >= now);
-        require(!Futures(_futures).trade());
-        require(Futures(_futures).invertTrade());
-        StatusFutures(_futures, Futures(_futures).trade());
-        return true;
+        return FuturesAPI.startFutures(_futures);
     }    
     
     function TikerInsert(address _addressTicker, int64 _key, int _value) public onlyOwner {
@@ -129,12 +114,10 @@ contract FuturesExch is FuturesExchToken {
     }
     
     function transferOwnershipForFutures(address futures, address newOwner) public onlyOwner {
-        require(futures != address(0));
-        require(newOwner != address(0));
-        Futures(futures).transferOwnership(newOwner);
+        FuturesAPI.transferOwnershipForFutures(futures, newOwner);
     }
     
-    function bytes32ToString (bytes32 data) public pure returns (string) {
+    /*function bytes32ToString (bytes32 data) public pure returns (string) {
         bytes memory bytesString = new bytes(32);
         for (uint j=0; j<32; j++) {
             byte char = byte(bytes32(uint(data) * 2 ** (8 * j)));
@@ -143,5 +126,5 @@ contract FuturesExch is FuturesExchToken {
             }
         }
         return string(bytesString);
-    }
+    }*/
 }

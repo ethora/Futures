@@ -1,6 +1,6 @@
 pragma solidity ^0.4.17;
 
-import "./Futures.sol";
+import "./FuturesAPI.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 import "library/linkedList.sol";
@@ -35,7 +35,7 @@ library FuturesExchLib {
         require(_futures != address(0));
         require(Futures(_futures).expire() >= now);
         require(Futures(_futures).trade());
-        //orders.push(Order({id: order_id, trader: msg.sender, kind: BUY, action: NEW, size: _size, price: 0, deleted: false}));
+
         LogOrder(_futures, order_id, BUY, NEW, _size, 0);        
         uint80 it = _list.iterate_end();
         uint part_size = 0;
@@ -45,15 +45,16 @@ library FuturesExchLib {
                 part_size = _size.min256(_orders[uint(_list.iterate_get(it))].size);
                 _size -= part_size;
                 _orders[uint(_list.iterate_get(it))].size -= part_size;
-                cost += part_size.mul(_orders[uint(_list.iterate_get(it))].price).div(uint(10)**Futures(_futures).decimals()).mul(Futures(_futures).margin()).div(100);
+                cost += part_size.mul(_orders[uint(_list.iterate_get(it))].price).mul(Futures(_futures).margin()).div(100);
                 LogOrder(_futures, order_id, BUY, DONE, part_size, _orders[uint(_list.iterate_get(it))].price);
                 LogOrder(_futures, _orders[uint(_list.iterate_get(it))].id, SELL, DONE, part_size, _orders[uint(_list.iterate_get(it))].price);   
+                Futures(_futures).generateTokens(msg.sender, part_size*(uint(10)**Futures(_futures).decimals()));
                 if (_orders[uint(_list.iterate_get(it))].size == 0 )
                     _orders[uint(_list.iterate_get(it))].deleted = true;   
             }
             it = _list.iterate_prev(it);
         }        
-        //Deal(_futures, orders, order_id, BUY);
+
         if (_size > 0) LogOrder(_futures, order_id, BUY, DELETED, _size, 0);
         return cost;
     }
@@ -69,6 +70,20 @@ library FuturesExchLib {
         return ++order_id;
     }
     
+    function BuyLimit(DoublyLinkedList.data storage _list, Order[] storage _orders, address _futures, uint _size, uint _price, uint order_id) public returns (uint){
+        require(_futures != address(0));
+        require(Futures(_futures).expire() >= now);
+        require(Futures(_futures).trade());    
+        uint80 it = _list.iterate_end();
+        while (_list.iterate_valid(it)) {
+            if ( _list.count == 0 ||(_orders[uint(_list.iterate_get(it))].kind == BUY && !_orders[uint(_list.iterate_get(it))].deleted && _orders[uint(_list.iterate_get(it))].price > _price)){
+                _list.insert_after(it, bytes32(_orders.push(Order({id: order_id, trader: msg.sender, kind: BUY, action: NEW, size: _size, price: _price, deleted: false}))));
+                LogOrder(_futures, order_id, BUY, NEW, _size, _price); 
+                return Futures(_futures).round(1, _size.mul(_price).mul(Futures(_futures).margin()).div(100));
+            }        
+            it = _list.iterate_prev(it);
+        }
+    }
 
     /*function sort(Order[] storage orders) internal returns (bool){
         if (orders.length < 2) return bool;
