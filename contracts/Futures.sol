@@ -10,7 +10,7 @@ contract Futures is BasicToken, Ownable {
     uint public tick_value; //0.01 ETH
     uint public size; //0.5 BTC
     uint public margin; //40%
-    address public addressTicker;//0xfD12b06273c8F96Df27471Bf49F173c5f0B99ea6
+    address public addressTicker;//0x9d27be4ab27f1d498b3aee4b3cbed2b4d9d2b485
     uint public created;
     uint public expire;
     string public name;
@@ -18,44 +18,22 @@ contract Futures is BasicToken, Ownable {
     uint8 public decimals;//12
     bool public trade;
     
-    Checkpoint[] internal checkpoints;
-    
-    struct  Checkpoint {
-        uint Block;
-        uint datetime;
-        uint last;
-        uint high;
-        uint low;
-        uint settlement;
-    }    
+    uint last;
+    uint high;
+    uint low;
+    uint settlement;    
     
     function Futures(string _name, string _symbol, address _addressTicker, uint _expire, 
                     uint _size, uint _tick_size, uint _tick_value, uint _margin, uint8 _decimals) 
     public {
         require(_margin <= uint(100).mul(uint(10)**_decimals));
-        var (, _value) = EthOraAPI(_addressTicker).getLast();
-        _value = EthOraAPI(_addressTicker).decimals() > 0 
-            ? int(uint(_value).mul(uint(10)**_decimals).div(uint(10)**EthOraAPI(_addressTicker).decimals())) : _value;
-        require(uint(_value).mul(_size).div(uint(10)**_decimals) >= _tick_size);
+
         name = _name;
         symbol = _symbol;
         addressTicker = _addressTicker;
 
         expire = _expire;
         created = now;
-        
-        uint _v = ((uint(_value).mul(_size).div(uint(10)**_decimals)) % _tick_size) < _tick_size.div(2) ? 
-                    (uint(_value).mul(_size).div(uint(10)**_decimals)) - ((uint(_value).mul(_size).div(uint(10)**_decimals)) % _tick_size)  :
-                    (uint(_value).mul(_size).div(uint(10)**_decimals)) - ((uint(_value).mul(_size).div(uint(10)**_decimals)) % _tick_size) + _tick_size;
-        
-        checkpoints.push(Checkpoint({Block: block.number, 
-                                    datetime: created, 
-                                    last: _v,// _value.mul(_size).div(uint(10)**_decimals), 
-                                    settlement: _v, //_value.mul(_size).div(uint(10)**_decimals), 
-                                    low:  _v.mul(100 - (_margin / 2)).div(100), //_v.sub(_v.div(200).mul(_margin)).mul(_size).div(uint(10)**_decimals), 
-                                    high: _v.mul(100 + (_margin / 2)).div(100) //_v.add(_v.div(200).mul(_margin)).mul(_size).div(uint(10)**_decimals)
-                                    }));
-
         size = _size;
         tick_size = _tick_size;
         tick_value = _tick_value;
@@ -80,19 +58,27 @@ contract Futures is BasicToken, Ownable {
         }
     }
     
+    function setCheckpoint(uint _value) public onlyOwner returns(bool){
+
+        require(uint(_value).mul(size).div(uint(10)**decimals) >= tick_size);
+    
+
+        uint _v = ((uint(_value).mul(size).div(uint(10)**decimals)) % tick_size) < tick_size.div(2) ? 
+                    (uint(_value).mul(size).div(uint(10)**decimals)) - ((uint(_value).mul(size).div(uint(10)**decimals)) % tick_size)  :
+                    (uint(_value).mul(size).div(uint(10)**decimals)) - ((uint(_value).mul(size).div(uint(10)**decimals)) % tick_size) + tick_size;
+        
+
+        return true;
+    }
+    
     function getCheckpoint() public view returns(uint, uint, uint, uint)
     {
-        require(checkpoints.length > 0);
-        return (checkpoints[checkpoints.length-1].last, 
-                checkpoints[checkpoints.length-1].high, 
-                checkpoints[checkpoints.length-1].low, 
-                checkpoints[checkpoints.length-1].settlement);
+        return (last, high, low, settlement);
     }
     
     function getLast() public view returns(uint)
     {
-        require(checkpoints.length > 0);
-        return checkpoints[checkpoints.length-1].last;
+        return last;
     }
     
     function invertTrade() public onlyOwner returns (bool){
