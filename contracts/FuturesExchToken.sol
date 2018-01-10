@@ -1,4 +1,4 @@
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.18;
 
 import "zeppelin-solidity/contracts/token/StandardToken.sol";
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
@@ -57,4 +57,8 @@ contract FuturesExchToken is StandardToken, Ownable {
         Transfer(msg.sender, 0, amount);
         return true;
     }    
+    
+    function kill() public onlyOwner {
+        selfdestruct(owner);
+    }        
 }

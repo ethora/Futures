@@ -1,11 +1,11 @@
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.18;
 
 import "./Futures.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 
 library FuturesAPI {
-    using SafeMath for uint256;
+    /*using SafeMath for uint256;
     using Math for uint256;
 
     function getSymbol(address _futures) public view returns(bytes32 result) {
@@ -68,5 +68,5 @@ library FuturesAPI {
     
     function setCheckpoint(address _futures, uint value) public returns (bool){
         return Futures(_futures).setCheckpoint(value);
-    }
+    }*/
 }

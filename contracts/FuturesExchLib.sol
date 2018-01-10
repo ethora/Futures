@@ -1,37 +1,32 @@
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.18;
 
-import "./FuturesAPI.sol";
+import "./Futures.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 import "library/linkedList.sol";
+import "./DataAPI.sol";
 
 library FuturesExchLib {
     using SafeMath for uint256;
     using Math for uint256;
     using DoublyLinkedList for DoublyLinkedList.data;
 
-    struct Order {
-        uint id;
-        address trader;
-        uint8 kind;
-        uint8 action;
-        uint size;
-        uint price;
-        bool deleted;
-    }
-    
-    //enum Kind { Buy, Sell }
-    //enum Action { New, Deleted, Done }    
-    
-    uint8 constant BUY = 0;
-    uint8 constant SELL = 1;
-    uint8 constant NEW = 0;
-    uint8 constant DELETED = 1;
-    uint8 constant DONE = 2;
-    
     event LogOrder(address indexed futures, uint indexed id, uint8 kind, uint8 action, uint size, uint price);
+    
+    function Buy(address futures, uint size, address dataContract) public returns (uint) {
+        require(futures != address(0));
+        require(dataContract != address(0));
+        require(Futures(futures).trade());   
+        require(Futures(futures).expire() >= now);
+        
+        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).NEW(), size, 0);      
+        
+        DataAPI(dataContract).findAsk(futures, size, 0);
+        
+        return ;
+    }
 
-    function Buy(DoublyLinkedList.data storage _list, Order[] storage _orders, address _futures, uint _size, uint order_id) public returns (uint cost) {
+    /*function Buy(DoublyLinkedList.data storage _list, Order[] storage _orders, address _futures, uint _size, uint order_id) public returns (uint cost) {
         require(_futures != address(0));
         require(FuturesAPI.expire(_futures) >= now);
         require(FuturesAPI.getTrade(_futures));
@@ -81,33 +76,6 @@ library FuturesExchLib {
             }        
             it = _list.iterate_prev(it);
         }
-    }
-
-    /*function sort(Order[] storage orders) internal returns (bool){
-        if (orders.length < 2) return bool;
-        Order memory _order = orders[orders.length - 1];
-        for(uint i = orders.length - 2; i>=0; i--){
-            if(orders[i].kind == _order.kind && )
-        }
     }*/
-    
-   /* function DeleteOrder(Order[][2] storage orders, address _futures, uint _order_id) public returns (bool){
-        require(_futures != address(0));
-        require(FuturesAPI.expire(_futures) >= now);
-        require(FuturesAPI.getTrade(_futures));
-        require(orders.length > 0);
-        uint i = 0;
-        for(i = orders.length; (i > 0 && orders[i-1].id != _order_id) ;i--){}
-        if (i == 0) return false;
-        else {
-            require(orders[i-1].id == _order_id);
-            require(orders[i-1].trader == msg.sender);
-            require(!orders[i-1].deleted);
-            LogOrder(_futures, orders[i-1].kind, DELETED, 
-                        orders[i-1].id, orders[i-1].size, orders[i-1].price);        
-            orders[i-1].deleted = true;
-            return true;
-        }
-    }    */
-    
+
 }
