@@ -1,8 +1,11 @@
 pragma solidity ^0.4.18;
 
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
+import "zeppelin-solidity/contracts/token/StandardToken.sol";
+import "zeppelin-solidity/contracts/ownership/HasNoEther.sol";
+import "./Controlled.sol";
 
-contract Futures is Ownable {
+contract Futures is Ownable, StandardToken, Controlled, HasNoEther {
 
     uint public tick_size; //0.01 ETH
     uint public tick_value; //0.01 ETH
@@ -11,11 +14,12 @@ contract Futures is Ownable {
     uint public expire;
     string public name;
     string public symbol;
+    string public URL;// for Oraclize 
     uint8 public decimals;//18
     bool public trade;
 
 
-    function Futures(string _name, string _symbol, uint _expire, uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals) 
+    function Futures(string _name, string _symbol, uint _expire, uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals, string url) 
     public {
         require(_margin <= 100 );
 
@@ -29,12 +33,9 @@ contract Futures is Ownable {
         margin = _margin;
         decimals = _decimals;
         trade = false;
+        URL = url;
     }
 
-    function () payable public {
-        revert();
-    }
-    
     function getSymbol() public view returns(bytes32 result) {
         string memory _symbol = symbol;
         bytes memory tempEmptyStringTest = bytes(_symbol);
@@ -51,5 +52,25 @@ contract Futures is Ownable {
         trade = !trade;
         return trade;
     }
+    
+    function getCost(uint _size) public view returns (uint){
+        return size;
+    }
 
+    function transfer(address _to, uint256 _value) public onlyChanger returns (bool) {
+        return super.transfer(_to, _value);
+    }
+
+    function transferFrom(address _from, address _to, uint256 _value) public onlyChanger returns (bool) {
+        return super.transferFrom(_from, _to, _value);
+    }
+    
+    function increaseApproval(address _spender, uint _addedValue) public onlyChanger returns (bool success) {
+        return super.increaseApproval(_spender, _addedValue);
+    }
+
+    function decreaseApproval(address _spender, uint _subtractedValue) public onlyChanger returns (bool success) {
+        return super.decreaseApproval(_spender, _subtractedValue);
+    }
+    
 }
