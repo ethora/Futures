@@ -7,13 +7,13 @@ import "library/linkedList.sol";
 import "./DataAPI.sol";
 
 library FuturesExchLib {
-    using SafeMath for uint256;
+    /*using SafeMath for uint256;
     using Math for uint256;
     using DoublyLinkedList for DoublyLinkedList.data;
-
+    
     event LogOrder(address indexed futures, uint indexed id, uint8 kind, uint8 action, uint size, uint price);
     
-    function Buy(address futures, uint size, address dataContract) public returns (uint) {
+    function Buy(address futures, uint size, address dataContract) public returns (uint, address) {
         require(futures != address(0));
         require(dataContract != address(0));
         require(Futures(futures).trade());   
@@ -21,11 +21,13 @@ library FuturesExchLib {
         
         LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).NEW(), size, 0);      
         
-        DataAPI(dataContract).findAsk(futures, size, 0);
+        uint idx = DataAPI(dataContract).findAsk(futures, size, 0);
+        var (_size, _price, _maker) = DataAPI(dataContract).getOrder(futures, idx);
         
+
         return ;
     }
-
+*/
     /*function Buy(DoublyLinkedList.data storage _list, Order[] storage _orders, address _futures, uint _size, uint order_id) public returns (uint cost) {
         require(_futures != address(0));
         require(FuturesAPI.expire(_futures) >= now);

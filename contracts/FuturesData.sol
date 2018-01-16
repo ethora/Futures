@@ -16,8 +16,8 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
     address[] futuresList;
     mapping(address => Order[]) orders;
     mapping(address => uint[]) traderOrders;
-    DoublyLinkedList.data AskList; //Sell orders
-    DoublyLinkedList.data BidList; //Buy orders  
+    mapping(address => DoublyLinkedList.data) AskList; //Sell orders
+    mapping(address => DoublyLinkedList.data) BidList; //Buy orders  
     
     
     uint public order_id;
@@ -39,22 +39,26 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
     }    
     
     function findAsk(address futures, uint size, uint price) public view returns (uint){
-        return findOrder(AskList, futures, size, price, SELL);
+        return findOrder(AskList[futures], futures, size, price, SELL, false);
     }
     
     function findBid(address futures, uint size, uint price) public view returns (uint){
-        return findOrder(BidList, futures, size, price, BUY);
+        return findOrder(BidList[futures], futures, size, price, BUY, false);
     }    
     
-    function findOrder(DoublyLinkedList.data storage List, address futures, uint size, uint price, uint8 kind) internal view returns(uint){
+    function findOrder(DoublyLinkedList.data storage List, address futures, uint size, uint price, uint8 kind, bool inserted) internal view returns(uint80){
         require(size > 0);
         var it = List.iterate_end();
-        while (List.iterate_valid(it)){
+        while (List.iterate_valid(it) && it > 0){
             if(orders[futures][List.iterate_get(it)].kind == kind && orders[futures][List.iterate_get(it)].active && orders[futures][List.iterate_get(it)].size > 0) {
                 if (price == 0) return it;
-                else {
+                if (!inserted) {
                     if ( kind == SELL && orders[futures][List.iterate_get(it)].price <= price ) return it;
                     if ( kind == BUY  && orders[futures][List.iterate_get(it)].price >= price ) return it;
+                }
+                else {
+                    if ( kind == SELL && orders[futures][List.iterate_get(it)].price > price ) return it;
+                    if ( kind == BUY  && orders[futures][List.iterate_get(it)].price < price ) return it;
                 }
             }
             it = List.iterate_prev(it);
@@ -67,7 +71,21 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
     }
     
     function setOrder(address futures, address trader, uint8 kind, uint size, uint price) public onlyChanger returns (bool) {
+        uint80 it = 0;
+
         orders[futures].push(Order({id: order_id, trader: trader, kind: kind, size: size, price: price, active: true}));
+        
+        if (kind == SELL) {
+            it = findOrder(AskList[futures], futures, size, price, kind, true);
+            if (it != 0) AskList[futures].insert_before(it, orders[futures].length.sub(1));
+            else AskList[futures].append(orders[futures].length.sub(1));
+        }
+        
+        if (kind == BUY)  {
+            it = findOrder(BidList[futures], futures, size, price, kind, true);
+            if (it != 0) BidList[futures].insert_after(it, orders[futures].length.sub(1));
+            else BidList[futures].append(orders[futures].length.sub(1));
+        }
         return true;
     }
     

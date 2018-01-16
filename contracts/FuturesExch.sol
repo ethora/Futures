@@ -30,7 +30,9 @@ contract FuturesExch is FuturesExchToken {
     
     function addFutures(address _futures) public onlyOwner returns(bool){
         require(DataAPI(dataContract).addFutures(_futures));
+
         NewFutures(_futures, bytes32ToString(Futures(_futures).getSymbol()));            
+
         return true;
     }
     
@@ -73,6 +75,20 @@ contract FuturesExch is FuturesExchToken {
         uint rest = SellLoop(futures, size, 0);
         if (rest > 0) LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).DELETED(), rest, 0);      
 
+        DataAPI(dataContract).IncreaseId();
+        return true;
+    }
+
+    function SellLimit(address futures, uint size, uint price) public returns (bool) {
+        require(futures != address(0));
+        require(Futures(futures).trade());   
+        require(Futures(futures).expire() >= now);     
+        
+        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).NEW(), size, price);    
+        
+        uint rest = SellLoop(futures, size, price);   
+        if (rest > 0) DataAPI(dataContract).setOrder(futures, msg.sender, DataAPI(dataContract).SELL(), rest, price);
+        
         DataAPI(dataContract).IncreaseId();
         return true;
     }
