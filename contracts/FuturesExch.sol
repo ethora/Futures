@@ -7,6 +7,7 @@ import "./DataAPI.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 
+
 contract FuturesExch is FuturesExchToken {
 
     using SafeMath for uint256;
@@ -53,7 +54,9 @@ contract FuturesExch is FuturesExchToken {
     function BuyLimit(address futures, uint size, uint price) public returns (bool) {
         require(futures != address(0));
         require(Futures(futures).trade());   
-        require(Futures(futures).expire() >= now);     
+        require(Futures(futures).expire() >= now);    
+        
+        price = Futures(futures).roundPrice(price);
         
         LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).NEW(), size, price);    
         
@@ -68,7 +71,7 @@ contract FuturesExch is FuturesExchToken {
         require(futures != address(0));
         require(Futures(futures).trade());   
         require(Futures(futures).expire() >= now);        
-        require(Futures(futures).balanceOf(msg.sender) >= size.mul(uint(10)**decimals));
+        //require(Futures(futures).balanceOf(msg.sender) >= size.mul(uint(10)**decimals));
         
         LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).NEW(), size, 0);      
         
@@ -83,6 +86,8 @@ contract FuturesExch is FuturesExchToken {
         require(futures != address(0));
         require(Futures(futures).trade());   
         require(Futures(futures).expire() >= now);     
+        
+        price = Futures(futures).roundPrice(price);
         
         LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).NEW(), size, price);    
         
@@ -101,7 +106,7 @@ contract FuturesExch is FuturesExchToken {
         var (_size, _price, _maker, _id) = DataAPI(dataContract).getOrder(futures, idx);
         
         uint part_size = size.min256(_size);
-        uint cost = Futures(futures).getCost(part_size);
+        uint cost = _price.mul(part_size).mul(uint(Futures(futures).margin())).div(uint(100));//Futures(futures).getCost(part_size);
         
         require(cost > 0);
         
@@ -115,11 +120,13 @@ contract FuturesExch is FuturesExchToken {
         
         DataAPI(dataContract).DecreaseOrder(futures, _id, part_size);
         LogOrder(futures, _id, DataAPI(dataContract).SELL(), DataAPI(dataContract).DONE(), part_size, _price);  
+        Futures(futures).setLast(_price);
         
-        asyncSend(owner, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
+        asyncSend(futures, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
         Futures(futures).transferFrom(_maker, msg.sender, part_size.mul(uint(10)**decimals));
         
-        if (size > part_size) return BuyLoop(futures, size - part_size, price);
+        
+        if (size > part_size) return BuyLoop(futures, size.sub(part_size), price);
     }
     
     function SellLoop(address futures, uint size, uint price) internal returns (uint) {
@@ -129,7 +136,7 @@ contract FuturesExch is FuturesExchToken {
         var (_size, _price, _maker, _id) = DataAPI(dataContract).getOrder(futures, idx);
         
         uint part_size = size.min256(_size);
-        uint cost = Futures(futures).getCost(part_size);
+        uint cost = _price.mul(part_size).mul(uint(Futures(futures).margin())).div(uint(100));
         
         require(cost > 0);
         
@@ -143,10 +150,11 @@ contract FuturesExch is FuturesExchToken {
         
         DataAPI(dataContract).DecreaseOrder(futures, _id, part_size);
         LogOrder(futures, _id, DataAPI(dataContract).BUY(), DataAPI(dataContract).DONE(), part_size, _price);  
+        Futures(futures).setLast(_price);
         
-        asyncSend(owner, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
+        asyncSend(futures, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
         Futures(futures).transferFrom(msg.sender, _maker, part_size.mul(uint(10)**decimals));
-        if (size > part_size) return SellLoop(futures, size - part_size, price);
+        if (size > part_size) return SellLoop(futures, size.sub(part_size), price);
     }    
     
     function getFuturesListLength() public view returns (uint)

@@ -2,12 +2,13 @@ pragma solidity ^0.4.18;
 
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
 import "zeppelin-solidity/contracts/ownership/HasNoEther.sol";
+import "zeppelin-solidity/contracts/ownership/CanReclaimToken.sol";
 import "library/linkedList.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 import "./Controlled.sol";
 
-contract FuturesData is Ownable, Controlled, HasNoEther {
+contract FuturesData is Ownable, Controlled, HasNoEther, CanReclaimToken{
     
     using DoublyLinkedList for DoublyLinkedList.data;
     using SafeMath for uint256;
@@ -15,7 +16,7 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
     
     address[] futuresList;
     mapping(address => Order[]) orders;
-    mapping(address => uint[]) traderOrders;
+    //mapping(address => uint[]) traderOrders;
     mapping(address => DoublyLinkedList.data) AskList; //Sell orders
     mapping(address => DoublyLinkedList.data) BidList; //Buy orders  
     
@@ -38,11 +39,11 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
         bool active;
     }    
     
-    function findAsk(address futures, uint size, uint price) public view returns (uint){
+    function findAsk(address futures, uint size, uint price) external view returns (uint){
         return findOrder(AskList[futures], futures, size, price, SELL, false);
     }
     
-    function findBid(address futures, uint size, uint price) public view returns (uint){
+    function findBid(address futures, uint size, uint price) external view returns (uint){
         return findOrder(BidList[futures], futures, size, price, BUY, false);
     }    
     
@@ -66,11 +67,11 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
         return;
     }
     
-    function getOrder(address futures, uint idx) public view returns(uint, uint, address, uint){
+    function getOrder(address futures, uint idx) external view returns(uint, uint, address, uint){
         return (orders[futures][idx].size, orders[futures][idx].price, orders[futures][idx].trader, orders[futures][idx].id);
     }
     
-    function setOrder(address futures, address trader, uint8 kind, uint size, uint price) public onlyChanger returns (bool) {
+    function setOrder(address futures, address trader, uint8 kind, uint size, uint price) external onlyChanger returns (bool) {
         uint80 it = 0;
 
         orders[futures].push(Order({id: order_id, trader: trader, kind: kind, size: size, price: price, active: true}));
@@ -89,17 +90,17 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
         return true;
     }
     
-    function addFutures(address futures) public onlyChanger returns(bool){
+    function addFutures(address futures) external onlyChanger returns(bool){
         require(futures != address(0));
         futuresList.push(futures);
         return true;
     }
     
-    function IncreaseId() public onlyChanger returns (uint){
+    function IncreaseId() external onlyChanger returns (uint){
         return ++order_id;
     }
     
-    function DecreaseOrder(address futures, uint idx, uint size) public onlyChanger returns (bool){
+    function DecreaseOrder(address futures, uint idx, uint size) external onlyChanger returns (bool){
         require (orders[futures][idx].active);
         require (orders[futures][idx].size >= size);
         orders[futures][idx].size.sub(size);
@@ -107,12 +108,12 @@ contract FuturesData is Ownable, Controlled, HasNoEther {
         return true;
     }
 
-    function getFuturesListLength() public view returns (uint)
+    function getFuturesListLength() external view returns (uint)
     {
         return futuresList.length;
     }
     
-    function getFuturesByIdx(uint idx) public view returns (address)
+    function getFuturesByIdx(uint idx) external view returns (address)
     {
         require((idx < futuresList.length) && (idx >= 0));
         return futuresList[idx];

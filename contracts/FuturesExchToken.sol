@@ -2,8 +2,9 @@ pragma solidity ^0.4.18;
 
 import "zeppelin-solidity/contracts/token/StandardToken.sol";
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
+import "zeppelin-solidity/contracts/ownership/CanReclaimToken.sol";
 
-contract FuturesExchToken is StandardToken, Ownable {
+contract FuturesExchToken is StandardToken, Ownable, CanReclaimToken {
 
     string public name;
     string public symbol;
