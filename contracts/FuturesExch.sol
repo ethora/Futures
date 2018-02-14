@@ -2,7 +2,6 @@ pragma solidity ^0.4.18;
 
 import "./Futures.sol";
 import "./FuturesExchToken.sol";
-//import "./FuturesExchLib.sol";
 import "./DataAPI.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
@@ -123,8 +122,8 @@ contract FuturesExch is FuturesExchToken {
         Futures(futures).setLast(_price);
         
         asyncSend(futures, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
-        Futures(futures).transferFrom(_maker, msg.sender, part_size.mul(uint(10)**decimals));
-        
+        //Futures(futures).transferFrom(_maker, msg.sender, part_size.mul(uint(10)**decimals), _price);
+        Futures(futures).transferFrom(_maker, msg.sender, part_size, _price);
         
         if (size > part_size) return BuyLoop(futures, size.sub(part_size), price);
     }
@@ -153,9 +152,16 @@ contract FuturesExch is FuturesExchToken {
         Futures(futures).setLast(_price);
         
         asyncSend(futures, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
-        Futures(futures).transferFrom(msg.sender, _maker, part_size.mul(uint(10)**decimals));
+        //Futures(futures).transferFrom(msg.sender, _maker, part_size.mul(uint(10)**decimals), _price);
+        Futures(futures).transferFrom(msg.sender, _maker, part_size, _price);
         if (size > part_size) return SellLoop(futures, size.sub(part_size), price);
-    }    
+    }   
+    
+    function clearing(address futures, address trader) public {
+        int variation = Futures(futures).clearing(trader);
+        if (variation > 0) asyncSend(trader, uint(variation));
+        if (variation < 0) asyncRequest(trader, uint(variation * (-1)));
+    }
     
     function getFuturesListLength() public view returns (uint)
     {

@@ -6,15 +6,18 @@ import "zeppelin-solidity/contracts/ownership/CanReclaimToken.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 import "./FuturesExchToken.sol";
-//import "oraclize/ethereum-api/oraclizeAPI.sol";
-//import "library/DateTimeAPI.sol";
+import "oraclize/ethereum-api/oraclizeAPI.sol";
+import "library/DateTime.sol";
 
 import "./Controlled.sol";
 
-contract Futures is Ownable, Controlled, CanReclaimToken {//, usingOraclize {
+contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
 
     using SafeMath for uint256;
     using Math for uint256;
+    
+    uint constant CLEARING_TIME = 64800; // Day 18:00 UTC
+    uint constant DAY_IN_SECONDS = 86400;
 
     uint public tick_size; //0.01 ETH
     uint public tick_value; //0.01 ETH
@@ -27,21 +30,24 @@ contract Futures is Ownable, Controlled, CanReclaimToken {//, usingOraclize {
     uint8 public decimals;//18
     bool public trade;
     address futuresExch;
-    //Checkpoint[] history;
     uint last;
     mapping(bytes32=>bool) validIds;
     mapping(address => Checkpoint[]) balances;
+    Checkpoint[] history;
 
     struct Checkpoint {
         uint dt;
-        uint Block;
-        int value;
+        uint price;
+        uint value;
+        KIND kind;
     }
     
-    event updatedValue(uint value);
+    enum KIND {NULL, SELL, BUY}
+    
+    event updatedPrice(uint value);
+    event clearingValue(uint value);
     event newOraclizeQuery(string description);    
     event Transfer(address indexed from, address indexed to, uint256 value);
-
 
     function Futures(string _name, string _symbol, uint _expire, uint _size, uint _tick_size, uint _tick_value, uint8 _margin, uint8 _decimals, string url, address _futuresExch) 
     public {
@@ -58,57 +64,22 @@ contract Futures is Ownable, Controlled, CanReclaimToken {//, usingOraclize {
         margin = _margin;
         decimals = _decimals;
         trade = false;
-        URL = url;
         futuresExch = _futuresExch;
+        URL = url;
         addChanger(_futuresExch);
     }
     
     function() public payable { }
 
-    function balanceOf(address _owner) public view returns (int256 balance) {
-        if (balances[_owner].length == 0) return;
-        return balances[_owner][balances[_owner].length-1].value;
-    }
-    
-    function transferFrom(address _from, address _to, uint256 _value) public onlyChanger returns (bool) {
+    function transferFrom(address _from, address _to, uint256 _value, uint256 _price) public onlyChanger returns (bool) {
         require(_to != address(0));
         require(_from != address(0));
-        balances[_from].push(Checkpoint({dt: now, Block: block.number, value: balanceOf(_from) - int256(_value)}));
-        balances[_to].push(Checkpoint({dt: now, Block: block.number, value: balanceOf(_to) + int256(_value)}));
+        balances[_from].push(Checkpoint({dt: now, price: _price, value: _value, kind: KIND.SELL}));
+        balances[_to].push(Checkpoint({dt: now, price: _price, value: _value, kind: KIND.BUY}));
+
         Transfer(_from, _to, _value);
         return true;
       }    
-
-    /*function __callback(bytes32 myid, string result) public {
-        require(trade);
-        require(validIds[myid]);
-        require(msg.sender == oraclize_cbAddress());
-        
-        //roundPrice((base**decimals).mul(base**decimals).div(stringToUint(result)).mul(size).div(base**decimals))
-        uint XBTC = roundPrice((uint(10)**decimals).mul(size).div(stringToUint(result)));
-        history.push(Checkpoint({dt: now, Block: block.number, value: XBTC}));
-        updatedValue(XBTC);
-        delete validIds[myid];
-        updateValue();
-    }
-
-    function updateValue() internal {
-        uint balance = FuturesExchToken(futuresExch).balanceOf(this);
-        if (balance > 0) FuturesExchToken(futuresExch).withdraw(balance);
-        balance = 0;
-        if (oraclize_getPrice("URL") > this.balance) {
-            newOraclizeQuery("Oraclize query was NOT sent, please add some ETH to cover for the query fee");
-        } else {
-            newOraclizeQuery("Oraclize query was sent, standing by for the answer..");
-            bytes32 queryId =
-                oraclize_query(getPeriod(), "URL", URL);
-            validIds[queryId] = true;
-        }
-    }
-    
-    function getPeriod() internal view returns (uint){
-        return DateTimeAPI.toTimestamp(DateTimeAPI.getYear(now), DateTimeAPI.getMonth(now), DateTimeAPI.getDay(now)) + 64800; //Next Day 16:00 UTC
-    }*/
 
     function getSymbol() public view returns(bytes32 result) {
         string memory _symbol = symbol;
@@ -120,6 +91,89 @@ contract Futures is Ownable, Controlled, CanReclaimToken {//, usingOraclize {
         assembly {
             result := mload(add(_symbol, 32))
         }
+    }
+    
+    function invertTrade() public onlyOwner returns (bool){
+        trade = !trade;
+        return trade;
+    }
+    
+    function roundPrice(uint _price) public view returns (uint value){
+        uint _v = _price % tick_size;
+        value = _v < tick_size.div(2) ? _price.sub(_v) : _price.sub(_v).add(tick_size);
+    }
+
+    function setLast(uint _last) external onlyChanger returns(bool){
+        last = _last;
+        return true;
+    }
+    
+    function kill() public onlyOwner {
+        require(now > expire);
+        uint balance = FuturesExchToken(futuresExch).balanceOf(this);
+        if (balance > 0) FuturesExchToken(futuresExch).withdraw(balance);        
+        selfdestruct(owner);
+    }
+    
+    function clearing(address trader) public onlyChanger returns(int result) {
+        require(!trade);
+        require(balances[trader].length > 0);
+        require(balances[trader][0].dt < DateTime.toTimestamp(DateTime.getYear(now), DateTime.getMonth(now), DateTime.getDay(now)) + CLEARING_TIME);
+        uint last_prev = history.length > 1 ? history[history.length-2].value : last;
+        
+        result += last >= last_prev ? int(last.sub(last_prev).mul(balances[trader][0].value)): int(last_prev.sub(last).mul(balances[trader][0].value)) * (-1);
+        balances[trader][0].dt = now;
+        
+        for(uint i = balances[trader].length - 1; i > 0; i-- ){
+            //balances[trader][i].dt
+            result += last >= balances[trader][i].price ? int(last.sub(balances[trader][i].price).mul(balances[trader][i].value)): int(balances[trader][i].price.sub(last).mul(balances[trader][i].value)) * (-1);
+            
+            if (balances[trader][0].kind == balances[trader][i].kind) balances[trader][0].value +=  balances[trader][i].value;
+            else {
+                balances[trader][0].value = balances[trader][0].value >= balances[trader][i].value ? balances[trader][0].value.sub( balances[trader][i].value) : balances[trader][i].value.sub( balances[trader][0].value);
+                balances[trader][0].kind = balances[trader][0].value >= balances[trader][i].value ? balances[trader][0].kind: balances[trader][i].kind;
+            }
+            
+            delete balances[trader][i];
+            balances[trader].length--;
+        }
+    }
+    
+    function __callback(bytes32 myid, string result) public {
+        require(trade);
+        require(validIds[myid]);
+        require(msg.sender == oraclize_cbAddress());
+        
+        //roundPrice((base**decimals).mul(base**decimals).div(stringToUint(result)).mul(size).div(base**decimals))
+        uint XBTC = roundPrice((uint(10)**decimals).mul(size).div(stringToUint(result)));
+        history.push(Checkpoint({dt: DateTime.toTimestamp(DateTime.getYear(now), DateTime.getMonth(now), DateTime.getDay(now)) + CLEARING_TIME,
+                    price: XBTC, value: last, kind: KIND.NULL}));
+        updatedPrice(XBTC);
+        clearingValue(last);
+        delete validIds[myid];
+        updateValue();
+        trade = false;
+    }
+
+    function updateValue() internal {
+        if (oraclize_getPrice("URL") > this.balance) {
+            newOraclizeQuery("Oraclize query was NOT sent, please add some ETH to cover for the query fee");
+        } else {
+            newOraclizeQuery("Oraclize query was sent, standing by for the answer..");
+            bytes32 queryId =
+                oraclize_query(getPeriod(), "URL", URL);
+            validIds[queryId] = true;
+        }
+    }
+    
+    function getPeriod() internal view returns (uint){
+        return DateTime.toTimestamp(DateTime.getYear(now), DateTime.getMonth(now), DateTime.getDay(now)) + DAY_IN_SECONDS + CLEARING_TIME;
+    }
+    
+    function start() public onlyOwner{
+        require(this.balance > 0);
+        if(!trade) invertTrade();
+        updateValue();
     }
     
     function stringToUint(string _amount) internal constant returns (uint result) {
@@ -161,47 +215,4 @@ contract Futures is Ownable, Controlled, CanReclaimToken {//, usingOraclize {
             }
         }        
     }
-    
-    function invertTrade() public onlyOwner returns (bool){
-        trade = !trade;
-        //if (trade) updateValue();
-        return trade;
-    }
-    
-    /*function getCost(uint _size) public view returns (uint){
-        require(history.length > 1);
-        return _size*history[history.length-1].value;
-    }*/
-    
-    function roundPrice(uint _price) public view returns (uint value){
-        uint _v = _price % tick_size;
-        value = _v < tick_size.div(2) ? _price.sub(_v) : _price.sub(_v).add(tick_size);
-    }
-
-    /*function transfer(address _to, uint256 _value) public onlyChanger returns (bool) {
-        return super.transfer(_to, _value);
-    }
-
-    function transferFrom(address _from, address _to, uint256 _value) public onlyChanger returns (bool) {
-        return super.transferFrom(_from, _to, _value);
-    }
-    
-    function increaseApproval(address _spender, uint _addedValue) public onlyChanger returns (bool success) {
-        return super.increaseApproval(_spender, _addedValue);
-    }
-
-    function decreaseApproval(address _spender, uint _subtractedValue) public onlyChanger returns (bool success) {
-        return super.decreaseApproval(_spender, _subtractedValue);
-    }*/
-    
-    function setLast(uint _last) external onlyChanger returns(bool){
-        last = _last;
-        return true;
-    }
-    
-    function kill() public onlyOwner {
-        require(now > expire);
-        selfdestruct(owner);
-    }
-    
 }
