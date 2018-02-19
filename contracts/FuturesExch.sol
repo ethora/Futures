@@ -2,7 +2,6 @@ pragma solidity ^0.4.18;
 
 import "./Futures.sol";
 import "./FuturesExchToken.sol";
-import "./DataAPI.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
 import "zeppelin-solidity/contracts/math/Math.sol";
 
@@ -12,150 +11,89 @@ contract FuturesExch is FuturesExchToken {
     using SafeMath for uint256;
     using Math for uint256;
     
-    address public dataContract;
-    
     uint constant maker_fee = 50; // 0.05% * 1000
     uint constant taker_fee = 100;// 0.10% * 1000
+    uint public order_id;
+    address[] futuresList;
+    //etherdelta inspire
+    mapping (address => mapping (bytes32 => bool)) public orders; //mapping of user accounts to mapping of order hashes to booleans (true = submitted by user, equivalent to offchain signature)
+    mapping (address => mapping (bytes32 => uint)) public orderFills; //mapping of user accounts to mapping of order hashes to uints (amount of order that has been filled)    
 
-    event LogOrder(address indexed futures, uint indexed id, uint8 kind, uint8 action, uint size, uint price);
+    event LogOrder(address indexed futures, uint id, uint size, uint8 kind, uint price, uint expires, uint nonce, address user);
+    event LogCancel(address indexed futures, uint id, uint size, uint8 kind, uint price, uint expires, uint nonce, address user);
+    event LogTrade(address indexed futures, uint id, uint size, uint8 kind, uint price, address maker, address taker);
     event NewFutures(address futures, string symbol);
     
-    function FuturesExch(string _name, string _symbol, address _dataContract, uint8 _decimals) public {
-        require(_dataContract != address(0));
+    function FuturesExch(string _name, string _symbol, uint8 _decimals) public {
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
-        dataContract = _dataContract;
     }
     
-    function addFutures(address _futures) public onlyOwner returns(bool){
-        require(DataAPI(dataContract).addFutures(_futures));
-
-        NewFutures(_futures, bytes32ToString(Futures(_futures).getSymbol()));            
-
-        return true;
-    }
-    
-    function Buy(address futures, uint size) public returns (bool) {
+    function addFutures(address futures) public onlyOwner returns(bool){
         require(futures != address(0));
-        require(Futures(futures).trade());   
-        require(Futures(futures).expire() >= now);        
-        
-        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).NEW(), size, 0);      
-        
-        uint rest = BuyLoop(futures, size, 0);   
-        if (rest > 0) LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).DELETED(), rest, 0);      
+        futuresList.push(futures);
 
-        DataAPI(dataContract).IncreaseId();
+        NewFutures(futures, bytes32ToString(Futures(futures).getSymbol()));            
+
         return true;
     }
     
-    function BuyLimit(address futures, uint size, uint price) public returns (bool) {
-        require(futures != address(0));
-        require(Futures(futures).trade());   
-        require(Futures(futures).expire() >= now);    
-        
-        price = Futures(futures).roundPrice(price);
-        
-        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).NEW(), size, price);    
-        
-        uint rest = BuyLoop(futures, size, price);   
-        if (rest > 0) DataAPI(dataContract).setOrder(futures, msg.sender, DataAPI(dataContract).BUY(), rest, price);
-        
-        DataAPI(dataContract).IncreaseId();
-        return true;
-    }
+    function order(address futures, uint size, uint8 kind, uint price, uint expires, uint nonce) public returns (uint) {
+        require(kind == 0 || kind == 1);
+        uint _price = Futures(futures).roundPrice(price);
+        bytes32 hash = sha256(this, futures, order_id, size, kind, _price, expires, nonce);
+        orders[msg.sender][hash] = true;
+        orderFills[msg.sender][hash] = size;
+        LogOrder(futures, order_id, size, kind, _price, expires, nonce, msg.sender);
+        return order_id++;
+    }    
     
-    function Sell(address futures, uint size) public returns (bool) {
-        require(futures != address(0));
-        require(Futures(futures).trade());   
-        require(Futures(futures).expire() >= now);        
-        //require(Futures(futures).balanceOf(msg.sender) >= size.mul(uint(10)**decimals));
-        
-        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).NEW(), size, 0);      
-        
-        uint rest = SellLoop(futures, size, 0);
-        if (rest > 0) LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).DELETED(), rest, 0);      
-
-        DataAPI(dataContract).IncreaseId();
-        return true;
-    }
-
-    function SellLimit(address futures, uint size, uint price) public returns (bool) {
-        require(futures != address(0));
-        require(Futures(futures).trade());   
-        require(Futures(futures).expire() >= now);     
-        
-        price = Futures(futures).roundPrice(price);
-        
-        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).NEW(), size, price);    
-        
-        uint rest = SellLoop(futures, size, price);   
-        if (rest > 0) DataAPI(dataContract).setOrder(futures, msg.sender, DataAPI(dataContract).SELL(), rest, price);
-        
-        DataAPI(dataContract).IncreaseId();
-        return true;
-    }
+    function cancelOrder(address futures, uint size, uint8 kind, uint price, uint expires, uint nonce, uint _order_id ) public {
+        bytes32 hash = sha256(this, futures, _order_id, size, kind, price, expires, nonce);
+        require (orders[msg.sender][hash]) ;//???????
+        delete orderFills[msg.sender][hash];
+        delete orders[msg.sender][hash];
+        LogCancel(futures, _order_id, size, kind, price, expires, nonce, msg.sender);
+    }    
     
-    function BuyLoop(address futures, uint size, uint price) internal returns (uint) {
-        uint idx = DataAPI(dataContract).findAsk(futures, size, price);
-        if (idx == 0) return size;
+    function trade(address futures, uint size, uint8 kind, uint price, uint expires, uint nonce, address user, uint _order_id /*, uint8 v, bytes32 r, bytes32 s*/) public {
         
-        
-        var (_size, _price, _maker, _id) = DataAPI(dataContract).getOrder(futures, idx);
-        
-        uint part_size = size.min256(_size);
-        uint cost = _price.mul(part_size).mul(uint(Futures(futures).margin())).div(uint(100));//Futures(futures).getCost(part_size);
-        
+        require(kind == 0 || kind == 1); // Buy = 0, Sell = 1
+        //uint8 _kind = kind == 0 ? 1 : 0;
+        bytes32 hash = sha256(this, futures, _order_id, size, (kind == 0 ? 1 : 0), price, expires, nonce);
+        require (!(
+          (orders[user][hash] /*|| ecrecover(keccak256("\x19Ethereum Signed Message:\n32", hash),v,r,s) == user*/) &&
+          block.number <= expires &&
+          orderFills[user][hash] > 0
+        )) ;
+        //uint part_size = size.min256(orderFills[user][hash]);
+        tradeBalances(futures, user, kind, size.min256(orderFills[user][hash]), price);
+        orderFills[user][hash] = orderFills[user][hash].sub(size.min256(orderFills[user][hash]));
+        LogTrade(futures, _order_id, size.min256(orderFills[user][hash]), kind, price, user, msg.sender);
+    }    
+    
+    function tradeBalances (address futures, address maker, uint8 kind, uint size, uint price) internal {
+        uint cost = Futures(futures).roundPrice(price.mul(size).mul(uint(Futures(futures).margin())).div(uint(100)));
         require(cost > 0);
         
-        asyncRequest(msg.sender, cost);
+        if ( kind == 0 ) {
+            //buy from orders
+            asyncSend(maker, cost);
+            asyncRequest(msg.sender, cost);
+            Futures(futures).transferFrom(maker, msg.sender, size, price);
+        }
+        else {
+            //sell to orders
+            asyncSend(msg.sender, cost);
+            asyncRequest(maker, cost);
+            Futures(futures).transferFrom(msg.sender, maker, size, price);
+        }
+        
+        asyncRequest(maker,      cost.mul(maker_fee).div(100000));    
         asyncRequest(msg.sender, cost.mul(taker_fee).div(100000));
-        
-        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).BUY(), DataAPI(dataContract).DONE(), part_size, _price);
-        
-        asyncSend(_maker, cost);
-        asyncRequest(_maker, cost.mul(maker_fee).div(100000));
-        
-        DataAPI(dataContract).DecreaseOrder(futures, _id, part_size);
-        LogOrder(futures, _id, DataAPI(dataContract).SELL(), DataAPI(dataContract).DONE(), part_size, _price);  
-        Futures(futures).setLast(_price);
-        
         asyncSend(futures, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
-        //Futures(futures).transferFrom(_maker, msg.sender, part_size.mul(uint(10)**decimals), _price);
-        Futures(futures).transferFrom(_maker, msg.sender, part_size, _price);
-        
-        if (size > part_size) return BuyLoop(futures, size.sub(part_size), price);
     }
-    
-    function SellLoop(address futures, uint size, uint price) internal returns (uint) {
-        uint idx = DataAPI(dataContract).findBid(futures, size, price);
-        if (idx == 0) return size;
-        
-        var (_size, _price, _maker, _id) = DataAPI(dataContract).getOrder(futures, idx);
-        
-        uint part_size = size.min256(_size);
-        uint cost = _price.mul(part_size).mul(uint(Futures(futures).margin())).div(uint(100));
-        
-        require(cost > 0);
-        
-        asyncSend(msg.sender, cost);
-        asyncRequest(msg.sender, cost.mul(taker_fee).div(100000));
-        
-        LogOrder(futures, DataAPI(dataContract).order_id(), DataAPI(dataContract).SELL(), DataAPI(dataContract).DONE(), part_size, _price);
-        
-        asyncRequest(_maker, cost);
-        asyncRequest(_maker, cost.mul(maker_fee).div(100000));
-        
-        DataAPI(dataContract).DecreaseOrder(futures, _id, part_size);
-        LogOrder(futures, _id, DataAPI(dataContract).BUY(), DataAPI(dataContract).DONE(), part_size, _price);  
-        Futures(futures).setLast(_price);
-        
-        asyncSend(futures, cost.mul(maker_fee).div(100000).add(cost.mul(taker_fee).div(100000)));
-        //Futures(futures).transferFrom(msg.sender, _maker, part_size.mul(uint(10)**decimals), _price);
-        Futures(futures).transferFrom(msg.sender, _maker, part_size, _price);
-        if (size > part_size) return SellLoop(futures, size.sub(part_size), price);
-    }   
     
     function clearing(address futures, address trader) public {
         int variation = Futures(futures).clearing(trader);
@@ -165,18 +103,12 @@ contract FuturesExch is FuturesExchToken {
     
     function getFuturesListLength() public view returns (uint)
     {
-        return DataAPI(dataContract).getFuturesListLength();
+        return futuresList.length;
     }
     
     function getFuturesByIdx(uint idx) public view returns (address)
     {
-        return DataAPI(dataContract).getFuturesByIdx(idx);
-    }
-    
-    function setDataContract(address _dataContract) public onlyOwner returns (bool){
-        require(_dataContract != address(0));
-        dataContract = _dataContract;
-        return true;
+        return futuresList[idx];
     }
     
     function bytes32ToString (bytes32 data) public pure returns (string) {

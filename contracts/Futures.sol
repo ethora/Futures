@@ -29,8 +29,8 @@ contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
     string public URL;// for Oraclize json(https://api.coinmarketcap.com/v1/ticker/ethereum/).0.price_btc
     uint8 public decimals;//18
     bool public trade;
-    address futuresExch;
-    uint last;
+    address public futuresExch;
+    uint public last;
     mapping(bytes32=>bool) validIds;
     mapping(address => Checkpoint[]) balances;
     Checkpoint[] history;
@@ -161,7 +161,7 @@ contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
         } else {
             newOraclizeQuery("Oraclize query was sent, standing by for the answer..");
             bytes32 queryId =
-                oraclize_query(getPeriod(), "URL", URL);
+                oraclize_query(getPeriod(), "URL", URL, 500000);
             validIds[queryId] = true;
         }
     }
@@ -173,6 +173,7 @@ contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
     function start() public onlyOwner{
         require(this.balance > 0);
         if(!trade) invertTrade();
+        oraclize_setCustomGasPrice(4000000000 wei);
         updateValue();
     }
     
