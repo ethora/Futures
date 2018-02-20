@@ -11,17 +11,17 @@ contract FuturesExch is FuturesExchToken {
     using SafeMath for uint256;
     using Math for uint256;
     
-    uint constant maker_fee = 50; // 0.05% * 1000
-    uint constant taker_fee = 100;// 0.10% * 1000
+    uint public maker_fee = 50; // 0.05% * 1000
+    uint public taker_fee = 100;// 0.10% * 1000
     uint public order_id;
     address[] futuresList;
     //etherdelta inspire
     mapping (address => mapping (bytes32 => bool)) public orders; //mapping of user accounts to mapping of order hashes to booleans (true = submitted by user, equivalent to offchain signature)
     mapping (address => mapping (bytes32 => uint)) public orderFills; //mapping of user accounts to mapping of order hashes to uints (amount of order that has been filled)    
 
-    event LogOrder(address indexed futures, uint id, uint size, uint8 kind, uint price, uint expires, uint nonce, address user);
-    event LogCancel(address indexed futures, uint id, uint size, uint8 kind, uint price, uint expires, uint nonce, address user);
-    event LogTrade(address indexed futures, uint id, uint size, uint8 kind, uint price, address maker, address taker);
+    event LogOrder(address indexed futures, uint id, uint size, uint8 kind, uint price, uint expires, address user, uint nonce);
+    event LogCancel(address indexed futures, uint id, uint size, uint8 kind, uint price, uint expires, address user, uint nonce);
+    event LogTrade(address indexed futures, uint id, uint size, uint8 kind, uint price, address maker, address taker, uint nonce);
     event NewFutures(address futures, string symbol);
     
     function FuturesExch(string _name, string _symbol, uint8 _decimals) public {
@@ -45,36 +45,36 @@ contract FuturesExch is FuturesExchToken {
         bytes32 hash = sha256(this, futures, order_id, size, kind, _price, expires, nonce);
         orders[msg.sender][hash] = true;
         orderFills[msg.sender][hash] = size;
-        LogOrder(futures, order_id, size, kind, _price, expires, nonce, msg.sender);
+        LogOrder(futures, order_id, size, kind, _price, expires, msg.sender, nonce);
         return order_id++;
     }    
     
-    function cancelOrder(address futures, uint size, uint8 kind, uint price, uint expires, uint nonce, uint _order_id ) public {
+    function cancelOrder(address futures, uint size, uint8 kind, uint price, uint expires, uint _order_id, uint nonce ) public {
         bytes32 hash = sha256(this, futures, _order_id, size, kind, price, expires, nonce);
         require (orders[msg.sender][hash]) ;//???????
         delete orderFills[msg.sender][hash];
         delete orders[msg.sender][hash];
-        LogCancel(futures, _order_id, size, kind, price, expires, nonce, msg.sender);
+        LogCancel(futures, _order_id, size, kind, price, expires, msg.sender, nonce);
     }    
     
-    function trade(address futures, uint size, uint8 kind, uint price, uint expires, uint nonce, address user, uint _order_id /*, uint8 v, bytes32 r, bytes32 s*/) public {
+    function trade(address futures, uint size, uint8 kind, uint price, uint expires, address user, uint _order_id, uint nonce) public {
         
         require(kind == 0 || kind == 1); // Buy = 0, Sell = 1
-        //uint8 _kind = kind == 0 ? 1 : 0;
-        bytes32 hash = sha256(this, futures, _order_id, size, (kind == 0 ? 1 : 0), price, expires, nonce);
-        require (!(
-          (orders[user][hash] /*|| ecrecover(keccak256("\x19Ethereum Signed Message:\n32", hash),v,r,s) == user*/) &&
-          block.number <= expires &&
-          orderFills[user][hash] > 0
-        )) ;
-        //uint part_size = size.min256(orderFills[user][hash]);
+        uint8 _kind = (kind == 0) ? uint8(1) : uint8(0);
+        bytes32 hash = sha256(this, futures, _order_id, size, _kind, price, expires, nonce);
+        require (orders[user][hash] && block.number <= expires && orderFills[user][hash] > 0) ;
         tradeBalances(futures, user, kind, size.min256(orderFills[user][hash]), price);
         orderFills[user][hash] = orderFills[user][hash].sub(size.min256(orderFills[user][hash]));
-        LogTrade(futures, _order_id, size.min256(orderFills[user][hash]), kind, price, user, msg.sender);
+        LogTrade(futures, _order_id, size.min256(orderFills[user][hash]), kind, price, user, msg.sender, nonce);
     }    
     
     function tradeBalances (address futures, address maker, uint8 kind, uint size, uint price) internal {
         uint cost = Futures(futures).roundPrice(price.mul(size).mul(uint(Futures(futures).margin())).div(uint(100)));
+        
+        LogTrade(futures, order_id, size, 2, price, this, msg.sender, cost);
+        LogTrade(futures, order_id, size, 3, price, this, msg.sender, cost.mul(maker_fee).div(100000));
+        LogTrade(futures, order_id, size, 4, price, this, msg.sender, cost.mul(taker_fee).div(100000));
+        
         require(cost > 0);
         
         if ( kind == 0 ) {

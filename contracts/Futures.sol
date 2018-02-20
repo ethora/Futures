@@ -71,17 +71,21 @@ contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
     
     function() public payable { }
 
-    function transferFrom(address _from, address _to, uint256 _value, uint256 _price) public onlyChanger returns (bool) {
+    function transferFrom(address _from, address _to, uint256 _value, uint256 _price) external onlyChanger returns (bool) {
         require(_to != address(0));
         require(_from != address(0));
         balances[_from].push(Checkpoint({dt: now, price: _price, value: _value, kind: KIND.SELL}));
         balances[_to].push(Checkpoint({dt: now, price: _price, value: _value, kind: KIND.BUY}));
-
-        Transfer(_from, _to, _value);
+        
+        Transfer(_from, _to, _value.mul(uint(10)**decimals));
         return true;
-      }    
-
-    function getSymbol() public view returns(bytes32 result) {
+      } 
+    
+    function balanceOf(address who) public view returns (uint balance){
+        balance = 0;
+    }
+    
+    function getSymbol() external view returns(bytes32 result) {
         string memory _symbol = symbol;
         bytes memory tempEmptyStringTest = bytes(_symbol);
         if (tempEmptyStringTest.length == 0) {
@@ -115,7 +119,7 @@ contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
         selfdestruct(owner);
     }
     
-    function clearing(address trader) public onlyChanger returns(int result) {
+    function clearing(address trader) external onlyChanger returns(int result) {
         require(!trade);
         require(balances[trader].length > 0);
         require(balances[trader][0].dt < DateTime.toTimestamp(DateTime.getYear(now), DateTime.getMonth(now), DateTime.getDay(now)) + CLEARING_TIME);
@@ -174,6 +178,8 @@ contract Futures is Ownable, Controlled, CanReclaimToken, usingOraclize {
         require(this.balance > 0);
         if(!trade) invertTrade();
         oraclize_setCustomGasPrice(4000000000 wei);
+        bytes32 queryId =oraclize_query("URL", URL, 500000);
+        validIds[queryId] = true;
         updateValue();
     }
     
